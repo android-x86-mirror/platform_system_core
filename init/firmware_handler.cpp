@@ -78,8 +78,12 @@ static void ProcessFirmwareEvent(const Uevent& uevent) {
         return;
     }
 
+#if defined(__i386__) || defined(__x86_64__)
+    static const char *firmware_dirs[] = { "/system/lib/firmware" };
+#else
     static const char* firmware_dirs[] = {"/etc/firmware/", "/odm/firmware/",
                                           "/vendor/firmware/", "/firmware/image/"};
+#endif
 
 try_loading_again:
     for (size_t i = 0; i < arraysize(firmware_dirs); i++) {
