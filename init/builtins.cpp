@@ -501,6 +501,11 @@ static Result<int> handle_fstab(const std::string& fstabfile, std::function<int(
             return Error() << "child aborted";
         }
     } else if (pid == 0) {
+        std::string filename_val;
+        if (!expand_props(fstabfile, &filename_val)) {
+            PLOG(ERROR) << "mount_all: cannot expand '" << fstabfile << "'";
+            _exit(-1);
+        }
         /* child, call fs_mgr_[u]mount_all() */
 
         // So we can always see what fs_mgr_[u]mount_all() does.
@@ -508,7 +513,7 @@ static Result<int> handle_fstab(const std::string& fstabfile, std::function<int(
         android::base::ScopedLogSeverity info(android::base::INFO);
 
         Fstab fstab;
-        ReadFstabFromFile(fstabfile, &fstab);
+        ReadFstabFromFile(filename_val, &fstab);
 
         int child_ret = func(&fstab);
 
@@ -628,7 +633,6 @@ static Result<Success> queue_fs_event(int code) {
  * not return.
  */
 static Result<Success> do_mount_all(const BuiltinArguments& args) {
-    std::size_t na = 0;
     bool import_rc = true;
     bool queue_event = true;
     int mount_mode = MOUNT_MODE_DEFAULT;
@@ -636,7 +640,7 @@ static Result<Success> do_mount_all(const BuiltinArguments& args) {
     std::size_t path_arg_end = args.size();
     const char* prop_post_fix = "default";
 
-    for (na = args.size() - 1; na > 1; --na) {
+    for (std::size_t na = args.size() - 1; na > 1; --na) {
         if (args[na] == "--early") {
             path_arg_end = na;
             queue_event = false;
