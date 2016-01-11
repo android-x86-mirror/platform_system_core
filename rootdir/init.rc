@@ -32,6 +32,8 @@ on early-init
     # cgroup for system_server and surfaceflinger
     mkdir /dev/memcg/system 0550 system system
 
+    mount debugfs /sys/kernel/debug /sys/kernel/debug mode=755
+
     start ueventd
 
     # Run apexd-bootstrap so that APEXes that provide critical libraries
