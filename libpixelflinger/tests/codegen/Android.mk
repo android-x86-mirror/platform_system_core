@@ -1,7 +1,7 @@
 LOCAL_PATH:= $(call my-dir)
 include $(CLEAR_VARS)
 
-ifeq ($(TARGET_ARCH),x86)
+ifneq ($(filter x86%,$(TARGET_ARCH)),)
 LOCAL_SRC_FILES:= \
     codegen.cpp
 else
@@ -16,7 +16,7 @@ LOCAL_SHARED_LIBRARIES := \
 LOCAL_C_INCLUDES := \
 	$(LOCAL_PATH)/../..
 
-ifeq ($(TARGET_ARCH),x86)
+ifneq ($(filter x86%,$(TARGET_ARCH)),)
 LOCAL_STATIC_LIBRARIES := libenc
 endif
 
