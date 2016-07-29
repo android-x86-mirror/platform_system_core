@@ -38,6 +38,9 @@ on early-init
 
     mount debugfs /sys/kernel/debug /sys/kernel/debug mode=755
 
+    # for /lib/firmware
+    symlink system/lib /lib
+
     start ueventd
 
 on init
