@@ -102,7 +102,6 @@ cc_library_static {
         "devices.cpp",
         "firmware_handler.cpp",
         "import_parser.cpp",
-        "init.cpp",
         "init_first_stage.cpp",
         "keychords.cpp",
         "log.cpp",

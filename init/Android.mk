@@ -36,12 +36,13 @@ init_cflags += \
     -Wno-unused-parameter \
     -Werror \
     -std=gnu++1z \
+    -DTARGET_PRODUCT=\"$(TARGET_PRODUCT)\"
 
 # --
 
 include $(CLEAR_VARS)
 LOCAL_CPPFLAGS := $(init_cflags)
-LOCAL_SRC_FILES := main.cpp
+LOCAL_SRC_FILES := init.cpp main.cpp
 
 LOCAL_MODULE:= init
 
