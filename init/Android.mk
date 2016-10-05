@@ -12,6 +12,14 @@ endif
 
 init_options += -DLOG_UEVENTS=0
 
+ifneq ($(TARGET_INIT_COLDBOOT_TIMEOUT),)
+init_options += -DCOLDBOOT_TIMEOUT_OVERRIDE=$(TARGET_INIT_COLDBOOT_TIMEOUT)
+endif
+
+ifneq ($(TARGET_INIT_CONSOLE_TIMEOUT),)
+init_options += -DCONSOLE_TIMEOUT_SEC=$(TARGET_INIT_CONSOLE_TIMEOUT)
+endif
+
 init_cflags += \
     $(init_options) \
     -Wall -Wextra \
@@ -72,6 +80,25 @@ LOCAL_SRC_FILES:= \
     ueventd.cpp \
     ueventd_parser.cpp \
     watchdogd.cpp \
+    vendor_init.cpp
+
+SYSTEM_CORE_INIT_DEFINES := BOARD_CHARGING_MODE_BOOTING_LPM \
+    BOARD_CHARGING_CMDLINE_NAME \
+    BOARD_CHARGING_CMDLINE_VALUE
+
+$(foreach system_core_init_define,$(SYSTEM_CORE_INIT_DEFINES), \
+  $(if $($(system_core_init_define)), \
+    $(eval LOCAL_CFLAGS += -D$(system_core_init_define)=\"$($(system_core_init_define))\") \
+  ) \
+)
+
+ifneq ($(TARGET_IGNORE_RO_BOOT_SERIALNO),)
+LOCAL_CFLAGS += -DIGNORE_RO_BOOT_SERIALNO
+endif
+
+ifneq ($(TARGET_IGNORE_RO_BOOT_REVISION),)
+LOCAL_CFLAGS += -DIGNORE_RO_BOOT_REVISION
+endif
 
 LOCAL_MODULE:= init
 LOCAL_C_INCLUDES += \
@@ -97,8 +124,10 @@ LOCAL_STATIC_LIBRARIES := \
     libc \
     libselinux \
     liblog \
-    libmincrypt \
+    libcrypto_utils_static \
     libcrypto_static \
+    libext2_blkid \
+    libext2_uuid_static \
     libc++_static \
     libdl \
     libsparse_static \
@@ -112,6 +141,11 @@ LOCAL_POST_INSTALL_CMD := $(hide) mkdir -p $(TARGET_ROOT_OUT)/sbin; \
 
 LOCAL_SANITIZE := integer
 LOCAL_CLANG := true
+
+ifneq ($(strip $(TARGET_INIT_VENDOR_LIB)),)
+LOCAL_WHOLE_STATIC_LIBRARIES += $(TARGET_INIT_VENDOR_LIB)
+endif
+
 include $(BUILD_EXECUTABLE)
 
 

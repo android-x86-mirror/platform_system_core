@@ -80,6 +80,18 @@ void restart_root_service(int fd, void *cookie) {
             return;
         }
 
+        char build_type[PROPERTY_VALUE_MAX];
+        char cm_version[PROPERTY_VALUE_MAX];
+        property_get("persist.sys.root_access", value, "0");
+        property_get("ro.build.type", build_type, "");
+        property_get("ro.cm.version", cm_version, "");
+
+        if (strlen(cm_version) > 0 && strcmp(build_type, "eng") != 0 && (atoi(value) & 2) != 2) {
+            WriteFdExactly(fd, "root access is disabled by system setting - enable in settings -> development options\n");
+            adb_close(fd);
+            return;
+        }
+
         property_set("service.adb.root", "1");
         WriteFdExactly(fd, "restarting adbd as root\n");
         adb_close(fd);
@@ -379,7 +391,9 @@ static void wait_for_state(int fd, void* data) {
         std::string error = "unknown error";
         const char* serial = sinfo->serial.length() ? sinfo->serial.c_str() : NULL;
         atransport* t = acquire_one_transport(sinfo->transport_type, serial, &is_ambiguous, &error);
-        if (t != nullptr && (sinfo->state == kCsAny || sinfo->state == t->connection_state)) {
+        if (t != nullptr && (sinfo->state == kCsAny || sinfo->state == t->connection_state ||
+                    (sinfo->state == kCsOnline && (t->connection_state == kCsRecovery ||
+                                                   t->connection_state == kCsDevice)) )) {
             SendOkay(fd);
             break;
         } else if (!is_ambiguous) {
@@ -545,6 +559,8 @@ asocket* host_service_to_socket(const char* name, const char* serial) {
             sinfo->state = kCsBootloader;
         } else if (!strcmp(name, "-any")) {
             sinfo->state = kCsAny;
+        } else if (!strcmp(name, "-online")) {
+            sinfo->state = kCsOnline;
         } else {
             return nullptr;
         }

@@ -395,6 +395,7 @@ static void usage() {
 #endif
             "  --unbuffered                             Do not buffer input or output.\n"
             "  --version                                Display version.\n"
+            "  -R                                       reboot device (e.g. after flash)\n"
             "  -h, --help                               show this message.\n"
         );
 }
@@ -904,7 +905,7 @@ static std::string verify_slot(Transport* transport, const char *slot) {
 }
 
 static void do_for_partition(Transport* transport, const char *part, const char *slot,
-                             std::function<void(const std::string&)> func, bool force_slot) {
+                             const std::function<void(const std::string&)>& func, bool force_slot) {
     std::string has_slot;
     std::string current_slot;
 
@@ -936,7 +937,7 @@ static void do_for_partition(Transport* transport, const char *part, const char 
  * partition does not support slots.
  */
 static void do_for_partitions(Transport* transport, const char *part, const char *slot,
-                              std::function<void(const std::string&)> func, bool force_slot) {
+                              const std::function<void(const std::string&)>& func, bool force_slot) {
     std::string has_slot;
 
     if (slot && strcmp(slot, "all") == 0) {
@@ -1277,13 +1278,14 @@ int main(int argc, char **argv)
 #if !defined(_WIN32)
         {"wipe-and-use-fbe", no_argument, 0, 0},
 #endif
+        {"reboot", no_argument, 0, 'R'},
         {0, 0, 0, 0}
     };
 
     serial = getenv("ANDROID_SERIAL");
 
     while (1) {
-        int c = getopt_long(argc, argv, "wub:k:n:r:t:s:S:lp:c:i:m:ha::", longopts, &longindex);
+        int c = getopt_long(argc, argv, "wub:k:n:r:t:s:S:lp:c:i:m:hRa::", longopts, &longindex);
         if (c < 0) {
             break;
         }
@@ -1328,6 +1330,9 @@ int main(int argc, char **argv)
             break;
         case 'r':
             ramdisk_offset = strtoul(optarg, 0, 16);
+            break;
+        case 'R':
+            wants_reboot = 1;
             break;
         case 't':
             tags_offset = strtoul(optarg, 0, 16);

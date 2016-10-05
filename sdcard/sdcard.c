@@ -1221,7 +1221,14 @@ static int handle_open(struct fuse* fuse, struct fuse_handler* handler,
     }
     out.fh = ptr_to_id(h);
     out.open_flags = 0;
-    out.padding = 0;
+    #if defined(FUSE_SHORTCIRCUIT) || defined(FUSE_STACKED_IO)
+        out.lower_fd = h->fd;
+    #elif defined FUSE_PASSTHROUGH
+        out.passthrough_fd = h->fd;
+    #else
+        out.padding = 0;
+    #endif
+
     fuse_reply(fuse, hdr->unique, &out, sizeof(out));
     return NO_STATUS;
 }
@@ -1385,7 +1392,13 @@ static int handle_opendir(struct fuse* fuse, struct fuse_handler* handler,
     }
     out.fh = ptr_to_id(h);
     out.open_flags = 0;
-    out.padding = 0;
+    #if defined(FUSE_SHORTCIRCUIT) || defined(FUSE_STACKED_IO)
+        out.lower_fd = -1;
+    #elif defined FUSE_PASSTHROUGH
+        out.passthrough_fd = -1;
+    #else
+        out.padding = 0;
+    #endif
     fuse_reply(fuse, hdr->unique, &out, sizeof(out));
     return NO_STATUS;
 }
@@ -1467,6 +1480,17 @@ static int handle_init(struct fuse* fuse, struct fuse_handler* handler,
     out.major = FUSE_KERNEL_VERSION;
     out.max_readahead = req->max_readahead;
     out.flags = FUSE_ATOMIC_O_TRUNC | FUSE_BIG_WRITES;
+
+    #ifdef FUSE_STACKED_IO
+        out.flags |= FUSE_STACKED_IO;
+    #endif
+    #ifdef FUSE_SHORTCIRCUIT
+        out.flags |= FUSE_SHORTCIRCUIT;
+    #endif
+    #ifdef FUSE_PASSTHROUGH
+        out.flags |= FUSE_PASSTHROUGH;
+    #endif
+
     out.max_background = 32;
     out.congestion_threshold = 32;
     out.max_write = MAX_WRITE;
@@ -2056,7 +2080,7 @@ static bool should_use_sdcardfs(void) {
     }
 }
 
-int main(int argc, char **argv) {
+int sdcard_main(int argc, char **argv) {
     const char *source_path = NULL;
     const char *label = NULL;
     uid_t uid = 0;

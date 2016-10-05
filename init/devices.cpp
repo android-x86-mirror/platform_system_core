@@ -50,6 +50,7 @@
 #include "util.h"
 #include "log.h"
 #include "parser.h"
+#include "property_service.h"
 
 #define SYSFS_PREFIX    "/sys"
 #if defined(__i386__) || defined(__x86_64__)
@@ -65,6 +66,8 @@ static const char *firmware_dirs[] = { "/etc/firmware",
 #define READ_MODULES_BLKLST	2
 
 extern struct selabel_handle *sehandle;
+
+extern std::string boot_device;
 
 static int device_fd = -1;
 
@@ -360,6 +363,35 @@ static void remove_platform_device(const char *path)
     }
 }
 
+/* Given a path that may start with an MTD device (/devices/virtual/mtd/mtd8/mtdblock8),
+ * populate the supplied buffer with the MTD partition number and return 0.
+ * If it doesn't start with an MTD device, or there is some error, return -1 */
+static int find_mtd_device_prefix(const char *path, char *buf, ssize_t buf_sz)
+{
+    const char *start, *end;
+
+    if (strncmp(path, "/devices/virtual/mtd", 20))
+        return -1;
+
+    /* Beginning of the prefix is the initial "mtdXX" after "/devices/virtual/mtd/" */
+    start = path + 21;
+
+    /* End of the prefix is one path '/' later, capturing the partition number
+     * Example: mtd8 */
+    end = strchr(start, '/');
+    if (!end) {
+        return -1;
+    }
+
+    /* Make sure we have enough room for the string plus null terminator */
+    if (end - start + 1 > buf_sz)
+        return -1;
+
+    strncpy(buf, start, end - start);
+    buf[end - start] = '\0';
+    return 0;
+}
+
 /* Given a path that may start with a PCI device, populate the supplied buffer
  * with the PCI domain/bus number and the peripheral ID and return 0.
  * If it doesn't start with a PCI device, or there is some error, return -1 */
@@ -513,6 +545,11 @@ static char **get_block_device_symlinks(struct uevent *uevent)
     char link_path[256];
     int link_num = 0;
     char *p;
+    int is_bootdevice = -1;
+    int mtd_fd = -1;
+    int nr;
+    char mtd_name_path[256];
+    char mtd_name[64];
 
     pdev = find_platform_device(uevent->path);
     if (pdev) {
@@ -521,18 +558,51 @@ static char **get_block_device_symlinks(struct uevent *uevent)
     } else if (!find_pci_device_prefix(uevent->path, buf, sizeof(buf))) {
         device = buf;
         type = "pci";
+    } else if (!find_mtd_device_prefix(uevent->path, buf, sizeof(buf))) {
+        device = buf;
+        type = "mtd";
     } else {
         return NULL;
     }
 
-    char **links = (char**) malloc(sizeof(char *) * 4);
+    char **links = (char**) malloc(sizeof(char *) * 6);
     if (!links)
         return NULL;
-    memset(links, 0, sizeof(char *) * 4);
+    memset(links, 0, sizeof(char *) * 6);
 
     INFO("found %s device %s\n", type, device);
 
     snprintf(link_path, sizeof(link_path), "/dev/block/%s/%s", type, device);
+
+    if(!strcmp(type, "mtd")) {
+        snprintf(mtd_name_path, sizeof(mtd_name_path),
+            "/sys/devices/virtual/%s/%s/name", type, device);
+        mtd_fd = open(mtd_name_path, O_RDONLY);
+            if(mtd_fd < 0) {
+                ERROR("Unable to open %s for reading", mtd_name_path);
+                return NULL;
+            }
+        nr = read(mtd_fd, mtd_name, sizeof(mtd_name) - 1);
+        if (nr <= 0)
+            return NULL;
+        close(mtd_fd);
+        mtd_name[nr - 1] = '\0';
+
+        p = strdup(mtd_name);
+        sanitize(p);
+        if (asprintf(&links[link_num], "/dev/block/%s/by-name/%s", type, p) > 0)
+            link_num++;
+        else
+            links[link_num] = NULL;
+        free(p);
+    }
+
+    if (pdev && boot_device.c_str()[0] != '\0' && strstr(device, boot_device.c_str())) {
+        make_link_init(link_path, "/dev/block/bootdevice");
+        is_bootdevice = 1;
+    } else {
+        is_bootdevice = 0;
+    }
 
     if (uevent->partition_name) {
         p = strdup(uevent->partition_name);
@@ -543,6 +613,13 @@ static char **get_block_device_symlinks(struct uevent *uevent)
             link_num++;
         else
             links[link_num] = NULL;
+
+        if (is_bootdevice > 0) {
+            if (asprintf(&links[link_num], "/dev/block/bootdevice/by-name/%s", p) > 0)
+                link_num++;
+            else
+                links[link_num] = NULL;
+        }
         free(p);
     }
 
@@ -551,6 +628,13 @@ static char **get_block_device_symlinks(struct uevent *uevent)
             link_num++;
         else
             links[link_num] = NULL;
+
+        if (is_bootdevice > 0) {
+            if (asprintf(&links[link_num], "/dev/block/bootdevice/by-num/p%d", uevent->partition_num) > 0)
+                link_num++;
+            else
+                links[link_num] = NULL;
+        }
     }
 
     slash = strrchr(uevent->path, '/');
@@ -764,8 +848,30 @@ static void handle_generic_device_event(struct uevent *uevent)
          base = "/dev/log/";
          make_dir(base, 0755);
          name += 4;
-     } else
-         base = "/dev/";
+     } else if (!strncmp(uevent->subsystem, "dvb", 3)) {
+         /* This imitates the file system that would be created
+          * if we were using devfs instead to preserve backward compatibility
+          * for users of dvb devices
+          */
+         int adapter_id=0;
+         char dev_name[20] = {0};
+
+         sscanf(name, "dvb%d.%s", &adapter_id, dev_name);
+
+         /* build dvb directory */
+         base = "/dev/dvb";
+         mkdir(base, 0755);
+
+         /* build adapter directory */
+         snprintf(devpath, sizeof(devpath), "/dev/dvb/adapter%d", adapter_id);
+         mkdir(devpath, 0755);
+
+         /* build actual device directory */
+         snprintf(devpath, sizeof(devpath), "/dev/dvb/adapter%d/%s",
+                 adapter_id, dev_name);
+     }
+     else
+        base = "/dev/";
      links = get_character_device_symlinks(uevent);
 
      if (!devpath[0])
@@ -977,6 +1083,21 @@ static int load_firmware(int fw_fd, int loading_fd, int data_fd)
         return -1;
     len_to_copy = st.st_size;
 
+    if (S_ISBLK(st.st_mode)) {
+        //File points to a block device. Need to calculate it's size
+        //manually
+        len_to_copy = lseek64(fw_fd, 0, SEEK_END);
+        if (len_to_copy < 0) {
+            ERROR("Failed to get size of blk device partition: %s\n",
+                             strerror(errno));
+            return -1;
+        }
+        if (lseek64(fw_fd, 0, SEEK_SET) < 0) {
+            ERROR("Failed to set r/w offset for blk device partition: %s\n",
+                             strerror(errno));
+            return -1;
+        }
+    }
     write(loading_fd, "1", 1);  /* start transfer */
 
     while (len_to_copy > 0) {
