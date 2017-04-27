@@ -761,7 +761,8 @@ int do_sysclktz(int nargs, char **args)
             return -1;
         }
     } else {
-        return -1;
+        tz.tz_minuteswest = std::stoi(args[1]);
+        return settimeofday(NULL, &tz);
     }
 
     return 0;
