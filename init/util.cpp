@@ -52,6 +52,8 @@
 #include "reboot.h"
 #include "util.h"
 
+const std::string kDefaultAndroidDtDir("/proc/device-tree/firmware/android/");
+
 static unsigned int do_decode_uid(const char *s)
 {
     unsigned int v;
@@ -422,10 +424,31 @@ std::ostream& operator<<(std::ostream& os, const Timer& t) {
     return os;
 }
 
-// Reads the content of device tree file under kAndroidDtDir directory.
+static std::string init_android_dt_dir() {
+    // Use the standard procfs-based path by default
+    std::string android_dt_dir = kDefaultAndroidDtDir;
+    // The platform may specify a custom Android DT path in kernel cmdline
+    import_kernel_cmdline(false,
+                          [&](const std::string& key, const std::string& value, bool in_qemu) {
+                              if (key == "androidboot.android_dt_dir") {
+                                  android_dt_dir = value;
+                              }
+                          });
+    LOG(INFO) << "Using Android DT directory " << android_dt_dir;
+    return android_dt_dir;
+}
+
+// FIXME: The same logic is duplicated in system/core/fs_mgr/
+const std::string& init_get_android_dt_dir() {
+    // Set once and saves time for subsequent calls to this function
+    static const std::string kAndroidDtDir = init_android_dt_dir();
+    return kAndroidDtDir;
+}
+
+// Reads the content of device tree file under the platform's Android DT directory.
 // Returns true if the read is success, false otherwise.
 bool read_android_dt_file(const std::string& sub_path, std::string* dt_content) {
-    const std::string file_name = kAndroidDtDir + sub_path;
+    const std::string file_name = init_get_android_dt_dir() + sub_path;
     if (android::base::ReadFileToString(file_name, dt_content)) {
         if (!dt_content->empty()) {
             dt_content->pop_back();  // Trims the trailing '\0' out.

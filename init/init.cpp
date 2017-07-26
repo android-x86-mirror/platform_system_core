@@ -489,7 +489,7 @@ static void process_kernel_dt() {
         return;
     }
 
-    std::unique_ptr<DIR, int (*)(DIR*)> dir(opendir(kAndroidDtDir.c_str()), closedir);
+    std::unique_ptr<DIR, int (*)(DIR*)> dir(opendir(init_get_android_dt_dir().c_str()), closedir);
     if (!dir) return;
 
     std::string dt_file;
@@ -499,7 +499,7 @@ static void process_kernel_dt() {
             continue;
         }
 
-        std::string file_name = kAndroidDtDir + dp->d_name;
+        std::string file_name = init_get_android_dt_dir() + dp->d_name;
 
         android::base::ReadFileToString(file_name, &dt_file);
         std::replace(dt_file.begin(), dt_file.end(), ',', '.');

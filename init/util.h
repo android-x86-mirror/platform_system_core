@@ -27,8 +27,6 @@
 
 #define COLDBOOT_DONE "/dev/.coldboot_done"
 
-const std::string kAndroidDtDir("/proc/device-tree/firmware/android/");
-
 using namespace std::chrono_literals;
 
 int create_socket(const char *name, int type, mode_t perm,
@@ -82,7 +80,10 @@ bool expand_props(const std::string& src, std::string* dst);
 
 void panic() __attribute__((__noreturn__));
 
-// Reads or compares the content of device tree file under kAndroidDtDir directory.
+// Returns the platform's Android DT directory as specified in the kernel cmdline.
+// If the platform does not configure a custom DT path, returns the standard one (based in procfs).
+const std::string& init_get_android_dt_dir();
+// Reads or compares the content of device tree file under the platform's Android DT directory.
 bool read_android_dt_file(const std::string& sub_path, std::string* dt_content);
 bool is_android_dt_value_expected(const std::string& sub_path, const std::string& expected_content);
 

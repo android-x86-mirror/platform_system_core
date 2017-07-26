@@ -21,19 +21,11 @@
 
 #include "fs_mgr_priv.h"
 
-// Tries to get the boot config value in properties, kernel cmdline and
-// device tree (in that order).  returns 'true' if successfully found, 'false'
-// otherwise
-bool fs_mgr_get_boot_config(const std::string& key, std::string* out_val) {
+// Tries to get the given boot config value from kernel cmdline.
+// Returns true if successfully found, false otherwise.
+bool fs_mgr_get_boot_config_from_kernel_cmdline(const std::string& key, std::string* out_val) {
     FS_MGR_CHECK(out_val != nullptr);
 
-    // first check if we have "ro.boot" property already
-    *out_val = android::base::GetProperty("ro.boot." + key, "");
-    if (!out_val->empty()) {
-        return true;
-    }
-
-    // fallback to kernel cmdline, properties may not be ready yet
     std::string cmdline;
     std::string cmdline_key("androidboot." + key);
     if (android::base::ReadFileToString("/proc/cmdline", &cmdline)) {
@@ -48,10 +40,29 @@ bool fs_mgr_get_boot_config(const std::string& key, std::string* out_val) {
         }
     }
 
+    return false;
+}
+
+// Tries to get the boot config value in properties, kernel cmdline and
+// device tree (in that order).  returns 'true' if successfully found, 'false'
+// otherwise
+bool fs_mgr_get_boot_config(const std::string& key, std::string* out_val) {
+    FS_MGR_CHECK(out_val != nullptr);
+
+    // first check if we have "ro.boot" property already
+    *out_val = android::base::GetProperty("ro.boot." + key, "");
+    if (!out_val->empty()) {
+        return true;
+    }
+
+    // fallback to kernel cmdline, properties may not be ready yet
+    if (fs_mgr_get_boot_config_from_kernel_cmdline(key, out_val)) {
+        return true;
+    }
+
     // lastly, check the device tree
     if (is_dt_compatible()) {
-        std::string file_name = kAndroidDtDir + "/" + key;
-        // DT entries terminate with '\0' but so do the properties
+        std::string file_name = get_android_dt_dir() + "/" + key;
         if (android::base::ReadFileToString(file_name, out_val)) {
             return true;
         }
