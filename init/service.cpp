@@ -28,6 +28,7 @@
 #include <sys/wait.h>
 #include <termios.h>
 #include <unistd.h>
+#include <cutils/klog.h>
 
 #include <android-base/file.h>
 #include <android-base/logging.h>
@@ -90,11 +91,9 @@ static Result<std::string> ComputeContextFromExecutable(const std::string& servi
         free(new_con);
     }
     if (rc == 0 && computed_context == mycon.get()) {
-        return Error() << "File " << service_path << "(labeled \"" << filecon.get()
-                       << "\") has incorrect label or no domain transition from " << mycon.get()
-                       << " to another SELinux domain defined. Have you configured your "
-                          "service correctly? https://source.android.com/security/selinux/"
-                          "device-policy#label_new_services_and_address_denials";
+        KLOG_WARNING("service", "File %s (labeled \"%s\") has incorrect label or no domain transition from %s to another SELinux domain defined.",
+                service_path.c_str(), filecon.get(), mycon.get());
+        return "skip";
     }
     if (rc < 0) {
         return Error() << "Could not get process context";
