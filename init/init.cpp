@@ -490,6 +490,12 @@ static void InstallRebootSignalHandlers() {
 #endif
     sigaction(SIGSYS, &action, nullptr);
     sigaction(SIGTRAP, &action, nullptr);
+
+    action.sa_handler = [](int sig) {
+        LOG(INFO) << "Got ctrl-alt-del: " << sig;
+        HandleControlMessage("start", "ctrl-alt-del", getpid());
+    };
+    sigaction(SIGINT, &action, nullptr);
 }
 
 static void HandleSigtermSignal() {
