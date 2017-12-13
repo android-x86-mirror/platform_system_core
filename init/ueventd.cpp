@@ -31,6 +31,7 @@
 #include <android-base/logging.h>
 #include <android-base/properties.h>
 #include <fstab/fstab.h>
+#include <cutils/klog.h>
 #include <selinux/android.h>
 #include <selinux/selinux.h>
 
@@ -212,7 +213,7 @@ void ColdBoot::Run() {
     WaitForSubProcesses();
 
     close(open(COLDBOOT_DONE, O_WRONLY | O_CREAT | O_CLOEXEC, 0000));
-    LOG(INFO) << "Coldboot took " << cold_boot_timer.duration().count() / 1000.0f << " seconds";
+    KLOG_INFO("Coldboot", "took %f seconds", cold_boot_timer.duration().count() / 1000.0f);
 }
 
 DeviceHandler CreateDeviceHandler() {
