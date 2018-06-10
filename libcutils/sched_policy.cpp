@@ -93,6 +93,8 @@ static int add_tid_to_cgroup(int tid, int fd)
                 return 0;
         SLOGW("add_tid_to_cgroup failed to write '%s' (%s); fd=%d\n",
               ptr, strerror(errno), fd);
+        if (errno == ENOSPC)
+                return 0;
         errno = EINVAL;
         return -1;
     }
