@@ -6,7 +6,10 @@ cc_defaults {
         "-fomit-frame-pointer",
         "-Wall",
         "-Werror",
+        "-Wno-implicit-fallthrough",
         "-Wno-unused-function",
+        "-Wno-unused-parameter",
+        "-Wno-unused-variable",
     ],
     export_include_dirs: ["include"],
     header_libs: ["libbase_headers"],
@@ -21,6 +24,12 @@ cc_defaults {
             neon: {
                 cflags: ["-D__ARM_HAVE_NEON"],
             },
+        },
+        x86: {
+            header_libs: [ "libenc_headers" ],
+        },
+        x86_64: {
+            header_libs: [ "libenc_headers" ],
         },
     },
 }
@@ -110,6 +119,14 @@ cc_library {
                 "arch-mips64/col32cb16blend.S",
                 "arch-mips64/t32cb16blend.S",
             ],
+        },
+        x86: {
+            srcs: [ "codeflinger/x86/*.cpp" ],
+            whole_static_libs: [ "libenc" ],
+        },
+        x86_64: {
+            srcs: [ "codeflinger/x86/*.cpp" ],
+            whole_static_libs: [ "libenc" ],
         },
     },
 }
