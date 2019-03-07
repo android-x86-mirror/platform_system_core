@@ -21,6 +21,7 @@ namespace android {
 namespace init {
 
 int ueventd_main(int argc, char** argv);
+int modprobe_main(int argc, char **argv);
 
 }  // namespace init
 }  // namespace android

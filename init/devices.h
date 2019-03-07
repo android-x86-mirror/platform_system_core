@@ -23,6 +23,7 @@
 #include <algorithm>
 #include <set>
 #include <string>
+#include <map>
 #include <vector>
 
 #include <android-base/file.h>
@@ -109,6 +110,11 @@ class DeviceHandler {
     ~DeviceHandler(){};
 
     void HandleDeviceEvent(const Uevent& uevent);
+    void HandleModuleEvent(const Uevent& uevent, std::vector<std::string>* mod_queue = nullptr);
+    bool LoadModule(const Uevent& uevent) const;
+    bool LoadModule(const std::string& mod, const char* options = "") const;
+    void ReadModulesDescFiles();
+    void OnColdBootDone();
 
     std::vector<std::string> GetBlockDeviceSymlinks(const Uevent& uevent) const;
     void set_skip_restorecon(bool value) { skip_restorecon_ = value; }
@@ -127,6 +133,8 @@ class DeviceHandler {
     std::vector<SysfsPermissions> sysfs_permissions_;
     std::vector<Subsystem> subsystems_;
     std::set<std::string> boot_devices_;
+    std::multimap<std::string, std::string> mod_aliases_;
+    std::multimap<std::string, std::string> deferred_mod_aliases_;
     bool skip_restorecon_;
     std::string sysfs_mount_point_;
 };

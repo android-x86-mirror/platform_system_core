@@ -22,6 +22,8 @@
 #include <unistd.h>
 
 #include <memory>
+#include <set>
+#include <thread>
 
 #include <android-base/logging.h>
 #include <android-base/stringprintf.h>
@@ -29,10 +31,13 @@
 #include <private/android_filesystem_config.h>
 #include <selinux/android.h>
 #include <selinux/selinux.h>
+#include <cutils/klog.h>
+#include <cutils/probe_module.h>
 
 #include "selinux.h"
 #include "ueventd.h"
 #include "util.h"
+#include "parser.h"
 
 #ifdef _INIT_INIT_H
 #error "Do not include init.h in files used by ueventd or watchdogd; it will expose init's globals"
@@ -419,6 +424,91 @@ void DeviceHandler::HandleDeviceEvent(const Uevent& uevent) {
     HandleDevice(uevent.action, devpath, block, uevent.major, uevent.minor, links);
 }
 
+void DeviceHandler::HandleModuleEvent(const Uevent& uevent, std::vector<std::string>* mod_queue)
+{
+    if (!uevent.modalias.empty() && uevent.action == "add") {
+        if (mod_aliases_.empty()) {
+            ReadModulesDescFiles();
+        }
+        bool deferred = false;
+        if (mod_queue) {
+            for (auto& entry : deferred_mod_aliases_) {
+                if (!fnmatch(entry.first.c_str(), uevent.modalias.c_str(), 0)) {
+                    mod_queue->emplace_back(entry.second);
+                    deferred = true;
+                }
+            }
+        }
+        if (!deferred) {
+            LoadModule(uevent);
+        }
+    }
+}
+
+bool DeviceHandler::LoadModule(const Uevent& uevent) const
+{
+    bool ret = false;
+    for (auto& entry : mod_aliases_) {
+        if (!fnmatch(entry.first.c_str(), uevent.modalias.c_str(), 0)) {
+            ret |= LoadModule(entry.second);
+        }
+    }
+    return ret;
+}
+
+bool DeviceHandler::LoadModule(const std::string& mod, const char* options) const
+{
+    bool ret = !insmod_by_dep(mod.c_str(), options, NULL, 0, NULL);
+    if (!ret) {
+        PLOG(WARNING) << "failed to load " << mod;
+    }
+    return ret;
+}
+
+void DeviceHandler::ReadModulesDescFiles()
+{
+    auto line_parser = [] (auto args, std::set<std::string>* set_) -> Result<Success> {
+        if (args.size() < 2) {
+            return Error() << "must have 2 entries";
+        }
+
+        set_->emplace(args[1]);
+        return Success();
+    };
+    using namespace std::placeholders;
+    std::set<std::string> blacklist, deferred;
+
+    Parser parser;
+    parser.AddSingleLineParser("blacklist", std::bind(line_parser, _1, &blacklist));
+    parser.AddSingleLineParser("deferred", std::bind(line_parser, _1, &deferred));
+
+    // wait until the file is ready
+    while (!parser.ParseConfig("/system/etc/modules.blacklist")) {
+        std::this_thread::sleep_for(100ms);
+    }
+
+    parser.AddSingleLineParser("alias", [&] (auto args) -> Result<Success> {
+        if (args.size() < 3) {
+            return Error() << "must have 3 entries";
+        }
+        if (deferred.find(args[2]) != deferred.end()) {
+            deferred_mod_aliases_.emplace(args[1], args[2]);
+        } else if (blacklist.find(args[2]) == blacklist.end()) {
+            mod_aliases_.emplace(args[1], args[2]);
+        }
+        return Success();
+    });
+    char alias[PATH_MAX];
+    strlcat(get_default_mod_path(alias), "modules.alias", PATH_MAX);
+    parser.ParseConfig(alias);
+}
+
+void DeviceHandler::OnColdBootDone()
+{
+    mod_aliases_.insert(deferred_mod_aliases_.begin(), deferred_mod_aliases_.end());
+    deferred_mod_aliases_.clear();
+}
+
 DeviceHandler::DeviceHandler(std::vector<Permissions> dev_permissions,
                              std::vector<SysfsPermissions> sysfs_permissions,
                              std::vector<Subsystem> subsystems, std::set<std::string> boot_devices,
@@ -433,6 +523,41 @@ DeviceHandler::DeviceHandler(std::vector<Permissions> dev_permissions,
 DeviceHandler::DeviceHandler()
     : DeviceHandler(std::vector<Permissions>{}, std::vector<SysfsPermissions>{},
                     std::vector<Subsystem>{}, std::set<std::string>{}, false) {}
+
+int modprobe_main(int argc, char **argv)
+{
+    // We only accept requests from root user (kernel)
+    if (getuid()) return -EPERM;
+
+    // Kernel will launch a user space program specified by
+    // /proc/sys/kernel/modprobe to load modules.
+    // No deferred loading in this case.
+    while (argc > 1 && (!strcmp(argv[1], "-q") || !strcmp(argv[1], "--"))) {
+        klog_set_level(KLOG_NOTICE_LEVEL);
+        argc--, argv++;
+    }
+
+    if (argc < 2) {
+        // it is called without enough arguments
+        return -EINVAL;
+    }
+
+    std::string options;
+    if (argc > 2) {
+        options = argv[2];
+        for (int i = 3; i < argc; ++i) {
+            options += ' ';
+            options += argv[i];
+        }
+    }
+    KLOG_NOTICE("modprobe", "%s %s", argv[1], options.c_str());
+
+    Uevent uevent = { .modalias = argv[1] };
+    DeviceHandler dh;
+    dh.ReadModulesDescFiles();
+    dh.OnColdBootDone();
+    exit(!dh.LoadModule(uevent) && !dh.LoadModule(uevent.modalias, options.c_str()));
+}
 
 }  // namespace init
 }  // namespace android

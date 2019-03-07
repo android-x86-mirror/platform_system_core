@@ -33,7 +33,6 @@
 #include <sys/resource.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
-#include <sys/syscall.h>
 #include <sys/system_properties.h>
 #include <sys/time.h>
 #include <sys/types.h>
@@ -50,6 +49,7 @@
 #include <android-base/unique_fd.h>
 #include <bootloader_message/bootloader_message.h>
 #include <cutils/android_reboot.h>
+#include <cutils/probe_module.h>
 #include <ext4_utils/ext4_crypt.h>
 #include <ext4_utils/ext4_crypt_init_extensions.h>
 #include <fs_mgr.h>
@@ -231,10 +231,7 @@ static Result<Success> do_insmod(const BuiltinArguments& args) {
     std::string filename = *it++;
     std::string options = android::base::Join(std::vector<std::string>(it, args.end()), ' ');
 
-    unique_fd fd(TEMP_FAILURE_RETRY(open(filename.c_str(), O_RDONLY | O_NOFOLLOW | O_CLOEXEC)));
-    if (fd == -1) return ErrnoError() << "open(\"" << filename << "\") failed";
-
-    int rc = syscall(__NR_finit_module, fd.get(), options.c_str(), flags);
+    int rc = insmod(filename.c_str(), options.c_str(), flags);
     if (rc == -1) return ErrnoError() << "finit_module for \"" << filename << "\" failed";
 
     return Success();

@@ -127,6 +127,7 @@ class ColdBoot {
 
     unsigned int num_handler_subprocesses_;
     std::vector<Uevent> uevent_queue_;
+    std::vector<std::string> mod_queue_;
 
     std::set<pid_t> subprocess_pids_;
 };
@@ -142,7 +143,7 @@ void ColdBoot::UeventHandlerMain(unsigned int process_num, unsigned int total_pr
 void ColdBoot::RegenerateUevents() {
     uevent_listener_.RegenerateUevents([this](const Uevent& uevent) {
         HandleFirmwareEvent(uevent);
-
+        device_handler_.HandleModuleEvent(uevent, &mod_queue_);
         uevent_queue_.emplace_back(std::move(uevent));
         return ListenerAction::kContinue;
     });
@@ -211,6 +212,11 @@ void ColdBoot::Run() {
     DoRestoreCon();
 
     WaitForSubProcesses();
+
+    device_handler_.OnColdBootDone();
+    for (auto& mod : mod_queue_) {
+        device_handler_.LoadModule(mod);
+    }
 
     close(open(COLDBOOT_DONE, O_WRONLY | O_CREAT | O_CLOEXEC, 0000));
     KLOG_INFO("Coldboot", "took %f seconds", cold_boot_timer.duration().count() / 1000.0f);
@@ -281,6 +287,7 @@ int ueventd_main(int argc, char** argv) {
 
     uevent_listener.Poll([&device_handler](const Uevent& uevent) {
         HandleFirmwareEvent(uevent);
+        device_handler.HandleModuleEvent(uevent);
         device_handler.HandleDeviceEvent(uevent);
         return ListenerAction::kContinue;
     });

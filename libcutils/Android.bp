@@ -105,6 +105,7 @@ cc_library {
                 "ashmem-dev.cpp",
                 "klog.cpp",
                 "partition_utils.cpp",
+                "probe_module.c",
                 "properties.cpp",
                 "qtaguid.cpp",
                 "trace-dev.cpp",
