@@ -46,6 +46,7 @@
 
 static constexpr char default_sleep_state[] = "mem";
 static constexpr char fallback_sleep_state[] = "freeze";
+static std::string sleep_state;
 
 static int state_fd = -1;
 static int uinput_fd = -1;
@@ -231,13 +232,8 @@ static bool sleep_state_available(const char *state)
 
 static const std::string &get_sleep_state()
 {
-    static std::string sleep_state;
-
     if (sleep_state.empty()) {
-        sleep_state = GetProperty("sleep.state", "");
-        if (!sleep_state.empty()) {
-            LOG(INFO) << "autosuspend using sleep.state property (" << sleep_state << ")";
-        } else if (sleep_state_available(default_sleep_state)) {
+        if (sleep_state_available(default_sleep_state)) {
             sleep_state = default_sleep_state;
             LOG(INFO) << "autosuspend using default sleep_state (" << sleep_state << ")";
         } else {
@@ -328,9 +324,18 @@ static int autosuspend_init(void) {
         return -1;
     }
 
-    wakeup_count_fd = TEMP_FAILURE_RETRY(open(sys_power_wakeup_count, O_CLOEXEC | O_RDWR));
+    const char *wc_path = sys_power_wakeup_count;
+    sleep_state = GetProperty("sleep.state", "");
+    if (!sleep_state.empty()) {
+        LOG(INFO) << "autosuspend using sleep.state property (" << sleep_state << ")";
+        if (sleep_state == "force") {
+            wc_path = "/dev/zero";
+            sleep_state.clear();
+        }
+    }
+    wakeup_count_fd = TEMP_FAILURE_RETRY(open(wc_path, O_CLOEXEC | O_RDWR));
     if (wakeup_count_fd < 0) {
-        PLOG(ERROR) << "error opening " << sys_power_wakeup_count;
+        PLOG(ERROR) << "error opening " << wc_path;
         goto err_open_wakeup_count;
     }
 
@@ -359,7 +364,7 @@ err_open_wakeup_count:
 }
 
 static int autosuspend_wakeup_count_enable(void) {
-    LOG(VERBOSE) << "autosuspend_wakeup_count_enable";
+    LOG(INFO) << "autosuspend_wakeup_count_enable";
 
     int ret = autosuspend_init();
     if (ret < 0) {
@@ -372,13 +377,13 @@ static int autosuspend_wakeup_count_enable(void) {
         PLOG(ERROR) << "error changing semaphore";
     }
 
-    LOG(VERBOSE) << "autosuspend_wakeup_count_enable done";
+    LOG(INFO) << "autosuspend_wakeup_count_enable done";
 
     return ret;
 }
 
 static int autosuspend_wakeup_count_disable(void) {
-    LOG(VERBOSE) << "autosuspend_wakeup_count_disable";
+    LOG(INFO) << "autosuspend_wakeup_count_disable";
 
     if (!autosuspend_is_init) {
         return 0;  // always successful if no thread is running yet
@@ -390,13 +395,13 @@ static int autosuspend_wakeup_count_disable(void) {
         PLOG(ERROR) << "error changing semaphore";
     }
 
-    LOG(VERBOSE) << "autosuspend_wakeup_count_disable done";
+    LOG(INFO) << "autosuspend_wakeup_count_disable done";
 
     return ret;
 }
 
 static int force_suspend(int timeout_ms) {
-    LOG(VERBOSE) << "force_suspend called with timeout: " << timeout_ms;
+    LOG(INFO) << "force_suspend called with timeout: " << timeout_ms;
 
     int ret = init_state_fd();
     if (ret < 0) {
