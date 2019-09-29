@@ -16,6 +16,7 @@
 
 #pragma once
 
+#include <set>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -33,6 +34,7 @@ class ModaliasHandler : public UeventHandler {
     virtual ~ModaliasHandler() = default;
 
     void HandleUevent(const Uevent& uevent) override;
+    void ColdbootDone() override;
 
   private:
     Result<Success> InsmodWithDeps(const std::string& module_name, const std::string& args);
@@ -41,8 +43,15 @@ class ModaliasHandler : public UeventHandler {
     Result<Success> ParseDepCallback(std::vector<std::string>&& args);
     Result<Success> ParseAliasCallback(std::vector<std::string>&& args);
 
+    std::string GetModulePath(const std::string& path_name);
+
     std::vector<std::pair<std::string, std::string>> module_aliases_;
     std::unordered_map<std::string, std::vector<std::string>> module_deps_;
+    std::set<std::string> modules_to_defer_;
+    std::set<std::string> modules_to_blacklist_;
+    std::set<std::string> deferred_modules_;
+
+    std::string release_;
 };
 
 }  // namespace init

@@ -18,6 +18,8 @@
 
 #include <fnmatch.h>
 #include <sys/syscall.h>
+#include <sys/utsname.h>
+#include <unistd.h>
 
 #include <algorithm>
 #include <functional>
@@ -32,6 +34,13 @@
 
 namespace android {
 namespace init {
+
+static const std::string base_paths[] = {
+    "/system/lib/modules/",
+    "/vendor/lib/modules/",
+    "/lib/modules/",
+    "/odm/lib/modules/",
+};
 
 Result<Success> ModaliasHandler::ParseDepCallback(std::vector<std::string>&& args) {
     std::vector<std::string> deps;
@@ -83,26 +92,60 @@ Result<Success> ModaliasHandler::ParseAliasCallback(std::vector<std::string>&& a
 ModaliasHandler::ModaliasHandler() {
     using namespace std::placeholders;
 
-    static const std::string base_paths[] = {
-            "/vendor/lib/modules/",
-            "/lib/modules/",
-            "/odm/lib/modules/",
-    };
+    struct utsname uts;
+    uname(&uts);
+    release_ = uts.release;
 
     Parser alias_parser;
     auto alias_callback = std::bind(&ModaliasHandler::ParseAliasCallback, this, _1);
     alias_parser.AddSingleLineParser("alias", alias_callback);
-    for (const auto& base_path : base_paths) alias_parser.ParseConfig(base_path + "modules.alias");
+    for (const auto& base_path : base_paths) {
+        alias_parser.ParseConfig(base_path + release_ + "/modules.alias");
+        alias_parser.ParseConfig(base_path + "modules.alias");
+    }
 
     Parser dep_parser;
     auto dep_callback = std::bind(&ModaliasHandler::ParseDepCallback, this, _1);
     dep_parser.AddSingleLineParser("", dep_callback);
-    for (const auto& base_path : base_paths) dep_parser.ParseConfig(base_path + "modules.dep");
+    for (const auto& base_path : base_paths) {
+        dep_parser.ParseConfig(base_path + release_ + "/modules.dep");
+        dep_parser.ParseConfig(base_path + "modules.dep");
+    }
+
+    auto blacklist_callback = [] (auto args, std::set<std::string>* v_) -> Result<Success> {
+        if (args.size() < 2) {
+            return Error() << "blacklist/deferred lines must have 2 entries";
+        }
+
+        v_->emplace(args[1]);
+        return Success();
+    };
+    Parser blacklist_parser;
+    blacklist_parser.AddSingleLineParser("blacklist", std::bind(blacklist_callback, _1, &this->modules_to_blacklist_));
+    blacklist_parser.AddSingleLineParser("deferred", std::bind(blacklist_callback, _1, &this->modules_to_defer_));
+    blacklist_parser.ParseConfig("/system/etc/modules.blacklist");
+}
+
+std::string ModaliasHandler::GetModulePath(const std::string& path_name) {
+    if (path_name[0] != '/') {
+        std::string module_path_name;
+        for (const auto& base_path : base_paths) {
+            module_path_name = base_path + release_ + "/" + path_name;
+            if (access(module_path_name.c_str(), F_OK) == 0) {
+                return module_path_name;
+            }
+            module_path_name = base_path + path_name;
+            if (access(module_path_name.c_str(), F_OK) == 0) {
+                return module_path_name;
+            }
+        }
+    }
+    return path_name;
 }
 
 Result<Success> ModaliasHandler::Insmod(const std::string& path_name, const std::string& args) {
     base::unique_fd fd(
-            TEMP_FAILURE_RETRY(open(path_name.c_str(), O_RDONLY | O_NOFOLLOW | O_CLOEXEC)));
+            TEMP_FAILURE_RETRY(open(GetModulePath(path_name).c_str(), O_RDONLY | O_NOFOLLOW | O_CLOEXEC)));
     if (fd == -1) return ErrnoError() << "Could not open module '" << path_name << "'";
 
     int ret = syscall(__NR_finit_module, fd.get(), args.c_str(), 0);
@@ -145,6 +188,17 @@ void ModaliasHandler::HandleUevent(const Uevent& uevent) {
     for (const auto& [alias, module] : module_aliases_) {
         if (fnmatch(alias.c_str(), uevent.modalias.c_str(), 0) != 0) continue;  // Keep looking
 
+        if (modules_to_blacklist_.find(module) != modules_to_blacklist_.end()) {
+            // skip blacklisted module
+            continue;
+        }
+
+        if (modules_to_defer_.find(module) != modules_to_defer_.end()) {
+            // defer module load until cold boot phase is done
+            deferred_modules_.emplace(module);
+            continue;
+        }
+
         LOG(DEBUG) << "Loading kernel module '" << module << "' for alias '" << uevent.modalias
                    << "'";
 
@@ -155,8 +209,18 @@ void ModaliasHandler::HandleUevent(const Uevent& uevent) {
         }
 
         // loading was successful
-        return;
     }
+}
+
+void ModaliasHandler::ColdbootDone() {
+    for (const auto& module : deferred_modules_) {
+        LOG(INFO) << "Loading kernel module '" << module << "' [deferred]";
+        if (auto result = InsmodWithDeps(module, ""); !result) {
+            LOG(ERROR) << "Cannot load module: " << result.error();
+        }
+    }
+    modules_to_defer_.clear();
+    deferred_modules_.clear();
 }
 
 }  // namespace init
