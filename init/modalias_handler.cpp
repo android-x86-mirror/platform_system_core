@@ -29,6 +29,9 @@
 #include <android-base/chrono_utils.h>
 #include <android-base/logging.h>
 #include <android-base/unique_fd.h>
+#if defined(__ANDROID__)
+#include <cutils/klog.h>
+#endif
 
 #include "parser.h"
 
@@ -157,7 +160,11 @@ Result<Success> ModaliasHandler::Insmod(const std::string& path_name, const std:
         return ErrnoError() << "Failed to insmod '" << path_name << "' with args '" << args << "'";
     }
 
+#if defined(__ANDROID__)
+    KLOG_INFO("modalias", "Loaded kernel module %s", path_name.c_str());
+#else
     LOG(INFO) << "Loaded kernel module " << path_name;
+#endif
     return Success();
 }
 
@@ -199,11 +206,19 @@ void ModaliasHandler::HandleUevent(const Uevent& uevent) {
             continue;
         }
 
+#if defined(__ANDROID__)
+        KLOG_INFO("modalias", "Loading kernel module '%s' for alias '%s'", module.c_str(), uevent.modalias.c_str());
+#else
         LOG(DEBUG) << "Loading kernel module '" << module << "' for alias '" << uevent.modalias
                    << "'";
+#endif
 
         if (auto result = InsmodWithDeps(module, ""); !result) {
+#if defined(__ANDROID__)
+            KLOG_ERROR("modalias", "Cannot load module: %s", result.error_string().c_str());
+#else
             LOG(ERROR) << "Cannot load module: " << result.error();
+#endif
             // try another one since there may be another match
             continue;
         }
@@ -214,9 +229,17 @@ void ModaliasHandler::HandleUevent(const Uevent& uevent) {
 
 void ModaliasHandler::ColdbootDone() {
     for (const auto& module : deferred_modules_) {
+#if defined(__ANDROID__)
+        KLOG_INFO("modalias", "Loading kernel module '%s' [deferred]", module.c_str());
+#else
         LOG(INFO) << "Loading kernel module '" << module << "' [deferred]";
+#endif
         if (auto result = InsmodWithDeps(module, ""); !result) {
+#if defined(__ANDROID__)
+            KLOG_ERROR("modalias", "Cannot load module: %s", result.error_string().c_str());
+#else
             LOG(ERROR) << "Cannot load module: " << result.error();
+#endif
         }
     }
     modules_to_defer_.clear();

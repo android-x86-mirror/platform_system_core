@@ -27,6 +27,9 @@
 #include <android-base/file.h>
 #include <android-base/logging.h>
 #include <android-base/unique_fd.h>
+#if defined(__ANDROID__)
+#include <cutils/klog.h>
+#endif
 
 using android::base::Timer;
 using android::base::unique_fd;
@@ -43,8 +46,12 @@ static void LoadFirmware(const Uevent& uevent, const std::string& root, int fw_f
     // Copy the firmware.
     int rc = sendfile(data_fd, fw_fd, nullptr, fw_size);
     if (rc == -1) {
+#if defined(__ANDROID__)
+        KLOG_ERROR("firmware", "firmware: sendfile failed { '%s', '%s', }", root.c_str(), uevent.firmware.c_str());
+#else
         PLOG(ERROR) << "firmware: sendfile failed { '" << root << "', '" << uevent.firmware
                     << "' }";
+#endif
     }
 
     // Tell the firmware whether to abort or commit.
@@ -62,7 +69,11 @@ FirmwareHandler::FirmwareHandler(std::vector<std::string> firmware_directories)
 void FirmwareHandler::ProcessFirmwareEvent(const Uevent& uevent) {
     int booting = IsBooting();
 
+#if defined(__ANDROID__)
+    KLOG_INFO("firmware", "firmware: loading '%s' for '%s'", uevent.firmware.c_str(), uevent.path.c_str());
+#else
     LOG(INFO) << "firmware: loading '" << uevent.firmware << "' for '" << uevent.path << "'";
+#endif
 
     std::string root = "/sys" + uevent.path;
     std::string loading = root + "/loading";
@@ -70,13 +81,21 @@ void FirmwareHandler::ProcessFirmwareEvent(const Uevent& uevent) {
 
     unique_fd loading_fd(open(loading.c_str(), O_WRONLY | O_CLOEXEC));
     if (loading_fd == -1) {
+#if defined(__ANDROID__)
+        KLOG_ERROR("firmware", "couldn't open firmware loading fd for %s", uevent.firmware.c_str());
+#else
         PLOG(ERROR) << "couldn't open firmware loading fd for " << uevent.firmware;
+#endif
         return;
     }
 
     unique_fd data_fd(open(data.c_str(), O_WRONLY | O_CLOEXEC));
     if (data_fd == -1) {
+#if defined(__ANDROID__)
+        KLOG_ERROR("firmware", "couldn't open firmware data fd for %s", uevent.firmware.c_str());
+#else
         PLOG(ERROR) << "couldn't open firmware data fd for " << uevent.firmware;
+#endif
         return;
     }
 
@@ -99,7 +118,11 @@ try_loading_again:
         goto try_loading_again;
     }
 
+#if defined(__ANDROID__)
+    KLOG_ERROR("firmware", "could not find firmware for %s", uevent.firmware.c_str());
+#else
     LOG(ERROR) << "firmware: could not find firmware for " << uevent.firmware;
+#endif
 
     // Write "-1" as our response to the kernel's firmware request, since we have nothing for it.
     write(loading_fd, "-1", 2);
@@ -116,7 +139,11 @@ void FirmwareHandler::HandleUevent(const Uevent& uevent) {
     if (pid == 0) {
         Timer t;
         ProcessFirmwareEvent(uevent);
+#if defined(__ANDROID__)
+        KLOG_INFO("firmware", "loading %s took %lldms", uevent.path.c_str(), t.duration().count());
+#else
         LOG(INFO) << "loading " << uevent.path << " took " << t;
+#endif
         _exit(EXIT_SUCCESS);
     }
 }
