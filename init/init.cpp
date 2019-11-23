@@ -46,6 +46,7 @@
 #include <processgroup/processgroup.h>
 #include <processgroup/setup.h>
 #include <selinux/android.h>
+#include <sys/system_properties.h>
 
 #ifndef RECOVERY
 #include <binder/ProcessState.h>
@@ -404,9 +405,21 @@ static void export_kernel_boot_props() {
         { "ro.boot.mode",       "ro.bootmode",   "unknown", },
         { "ro.boot.baseband",   "ro.baseband",   "unknown", },
         { "ro.boot.bootloader", "ro.bootloader", "unknown", },
-        { "ro.boot.hardware",   "ro.hardware",   "unknown", },
+        { "ro.boot.hardware",   "ro.hardware",   UNSET, },
         { "ro.boot.revision",   "ro.revision",   "0", },
     };
+    const char *hardware = prop_map[4].src_prop;
+    if (GetProperty(hardware, UNSET).empty()) {
+        char line[PROP_NAME_MAX + PROP_VALUE_MAX + 2], value[PROP_VALUE_MAX];
+        auto f = fopen("/system/build.prop", "r");
+        while (fgets(line, sizeof(line), f) == line) {
+            if (sscanf(line, "ro.product.system.name=%s", value) > 0) {
+                property_set(hardware, value);
+                break;
+            }
+        }
+        fclose(f);
+    }
     for (const auto& prop : prop_map) {
         std::string value = GetProperty(prop.src_prop, prop.default_value);
         if (value != UNSET)
