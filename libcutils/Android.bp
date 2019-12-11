@@ -21,6 +21,7 @@ libcutils_nonwindows_sources = [
     "fs.cpp",
     "hashmap.cpp",
     "multiuser.cpp",
+    "probe_module.c",
     "socket_inaddr_any_server_unix.cpp",
     "socket_local_client_unix.cpp",
     "socket_local_server_unix.cpp",
