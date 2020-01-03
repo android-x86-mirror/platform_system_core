@@ -3,7 +3,7 @@ package {
 }
 
 cc_binary {
-    srcs: ["sdcard.cpp"],
+    srcs: ["sdcard.cpp", "fuse.cpp"],
     name: "sdcard",
     cflags: [
         "-Wall",
@@ -14,6 +14,7 @@ cc_binary {
         "libbase",
         "libcutils",
         "libminijail",
+        "libpackagelistparser",
     ],
     sanitize: {
         misc_undefined: ["integer"],
